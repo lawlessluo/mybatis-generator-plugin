@@ -159,15 +159,8 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         insertEle.addElement(new TextElement("values"));
         XmlElement insertValuesEle = XmlElementGeneratorTools.generateValuesSelective(columns);
         insertEle.addElement(insertValuesEle);
-        // set
-        XmlElement setsEle = XmlElementGeneratorTools.generateSetsSelective(columns);
-        insertEle.addElement(setsEle);
-
-        // hook
-        if (PluginTools.getHook(IUpsertPluginHook.class).sqlMapUpsertSelectiveElementGenerated(insertEle, columns, insertColumnsEle, insertValuesEle, setsEle, introspectedTable)) {
-            document.getRootElement().addElement(insertEle);
-            logger.debug("itfsw(存在即更新插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加upsertSelective实现方法。");
-        }
+        document.getRootElement().addElement(insertEle);
+        logger.debug("itfsw(存在即更新插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加upsertSelective实现方法。");
     }
 
     /**
@@ -230,6 +223,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         foreachEle.addAttribute(new Attribute("separator", " union all "));
 
         foreachEle.addElement(new TextElement("select "));
+        // bracket true-->有括号 false-->没有括号
         for (Element element : XmlElementGeneratorTools.generateValues(columns, "item.", false)) {
             foreachEle.addElement(element);
         }
