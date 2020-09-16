@@ -99,7 +99,7 @@
         </dependency>
         <!-- lombok 的测试用例依赖tools.jar, 但直接使用以下方式配置会导致gradle报错
         解决办法：把tools.jar 安装进本地仓库！！
-        mvn install:install-file -DgroupId=jdk.tools -DartifactId=jdk.tools -Dpackaging=jar -Dversion=1.8 -Dfile=tools.jar
+        mvn install:install-file -DgroupId=jdk.tools -DartifactId=jdk.tools -Dpackaging=jar -Dversion=1.8 -Dfile=D:\Java\jdk1.8.0_131\lib\tools.jar
         <dependency>
             <groupId>com.sun</groupId>
             <artifactId>tools</artifactId>
