@@ -25,7 +25,7 @@ import org.mybatis.generator.api.dom.xml.*;
 import org.mybatis.generator.codegen.mybatis3.ListUtilities;
 import org.mybatis.generator.codegen.mybatis3.MyBatis3FormattingUtilities;
 
-import java.util.Iterator;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -41,6 +41,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
     public static final String METHOD_UPSERT = "upsert";  // 方法名
     public static final String METHOD_UPSERT_SELECTIVE = "upsertSelective";  // 方法名
     public static final String METHOD_BATCH_UPSERT = "batchUpsert";  // 方法名
+    public static final String METHOD_BATCH_UPSERT_SELECTIVE = "batchUpsertSelective";  // 方法名
     public static final String PHOENIX_DRIVER = "org.apache.phoenix.jdbc.PhoenixDriver";
 
     /**
@@ -112,6 +113,21 @@ public class PhoenixUpsertPlugin extends BasePlugin {
             FormatTools.addMethodWithBestPosition(interfaze, mBatchUpsert);
             logger.debug("itfsw(存在即更新插件):" + interfaze.getType().getShortName() + "增加mBatchUpsert方法。");
         }
+
+        // ====================================== batchUpsertSelective ======================================
+        FullyQualifiedJavaType selectiveType = new FullyQualifiedJavaType(introspectedTable.getRules().calculateAllFieldsClass().getShortName() + "." + ModelColumnPlugin.ENUM_NAME);
+        Method mBatchInsertSelective = JavaElementGeneratorTools.generateMethod(
+                METHOD_BATCH_UPSERT_SELECTIVE,
+                JavaVisibility.DEFAULT,
+                FullyQualifiedJavaType.getIntInstance(),
+                new Parameter(listType, "list", "@Param(\"list\")"),
+                new Parameter(selectiveType, "selective", "@Param(\"selective\")", true)
+        );
+        commentGenerator.addGeneralMethodComment(mBatchInsertSelective, introspectedTable);
+        // interface 增加方法
+        FormatTools.addMethodWithBestPosition(interfaze, mBatchInsertSelective);
+        logger.debug("itfsw(批量插入插件):" + interfaze.getType().getShortName() + "增加batchInsertSelective方法。");
+
         return super.clientGenerated(interfaze, topLevelClass, introspectedTable);
     }
 
@@ -128,6 +144,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         this.generateXmlElementWithSelective(document, introspectedTable);
         this.generateXmlElement(document, introspectedTable);
         this.generateBatchXmlElement(document, introspectedTable);
+        this.generateBatchXmlElementSelective(document, introspectedTable);
         return super.sqlMapDocumentGenerated(document, introspectedTable);
     }
 
@@ -198,6 +215,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
 
     /**
      * 批量
+     *
      * @param document
      * @param introspectedTable
      */
@@ -230,5 +248,77 @@ public class PhoenixUpsertPlugin extends BasePlugin {
 
         document.getRootElement().addElement(insertEle);
         logger.debug("itfsw(存在即更新插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加" + ("batchUpsert") + "实现方法。");
+    }
+
+    /**
+     * 批量
+     *
+     * @param document
+     * @param introspectedTable
+     */
+    private void generateBatchXmlElementSelective(Document document, IntrospectedTable introspectedTable) {
+        List<IntrospectedColumn> columns = ListUtilities.removeGeneratedAlwaysColumns(introspectedTable.getAllColumns());
+        XmlElement insertEle = new XmlElement("insert");
+        insertEle.addAttribute(new Attribute("id", METHOD_BATCH_UPSERT_SELECTIVE));
+        // 添加注释
+        commentGenerator.addComment(insertEle);
+
+        // 参数类型
+        insertEle.addAttribute(new Attribute("parameterType", JavaElementGeneratorTools.getModelTypeWithoutBLOBs(introspectedTable).getFullyQualifiedName()));
+        insertEle.getElements().addAll(generateSelectiveEnhancedEles(introspectedTable));
+        document.getRootElement().addElement(insertEle);
+        logger.debug("itfsw(存在即更新插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加batchUpsertSelective实现方法。");
+    }
+
+    /**
+     * 生成insert selective 增强的插入语句
+     *
+     * @param introspectedTable
+     * @return
+     */
+    private List<Element> generateSelectiveEnhancedEles(IntrospectedTable introspectedTable) {
+        List<Element> eles = new ArrayList<>();
+        eles.add(new TextElement("upsert into " + introspectedTable.getFullyQualifiedTableNameAtRuntime() + " ("));
+
+        XmlElement foreachInsertColumns = new XmlElement("foreach");
+        foreachInsertColumns.addAttribute(new Attribute("collection", "selective"));
+        foreachInsertColumns.addAttribute(new Attribute("item", "column"));
+        foreachInsertColumns.addAttribute(new Attribute("separator", ","));
+        foreachInsertColumns.addElement(new TextElement("${column.escapedColumnName}"));
+
+        eles.add(foreachInsertColumns);
+
+        eles.add(new TextElement(")"));
+
+        // foreach values
+        XmlElement foreachValues = new XmlElement("foreach");
+        foreachValues.addAttribute(new Attribute("collection", "list"));
+        foreachValues.addAttribute(new Attribute("item", "item"));
+        foreachValues.addAttribute(new Attribute("separator", " union all "));
+        foreachValues.addElement(new TextElement("select "));
+
+        // foreach 所有插入的列，比较是否存在
+        XmlElement foreachInsertColumnsCheck = new XmlElement("foreach");
+        foreachInsertColumnsCheck.addAttribute(new Attribute("collection", "selective"));
+        foreachInsertColumnsCheck.addAttribute(new Attribute("item", "column"));
+        foreachInsertColumnsCheck.addAttribute(new Attribute("separator", ","));
+
+        // 所有表字段
+        List<IntrospectedColumn> columns = ListUtilities.removeIdentityAndGeneratedAlwaysColumns(introspectedTable.getAllColumns());
+        List<IntrospectedColumn> columns1 = ListUtilities.removeIdentityAndGeneratedAlwaysColumns(introspectedTable.getAllColumns());
+        for (int i = 0; i < columns1.size(); i++) {
+            IntrospectedColumn introspectedColumn = columns.get(i);
+            XmlElement check = new XmlElement("if");
+            check.addAttribute(new Attribute("test", "'" + introspectedColumn.getActualColumnName() + "'.toString() == column.value"));
+            check.addElement(new TextElement(MyBatis3FormattingUtilities.getParameterClause(introspectedColumn, "item.")));
+
+            foreachInsertColumnsCheck.addElement(check);
+        }
+        foreachValues.addElement(foreachInsertColumnsCheck);
+
+
+        eles.add(foreachValues);
+
+        return eles;
     }
 }
