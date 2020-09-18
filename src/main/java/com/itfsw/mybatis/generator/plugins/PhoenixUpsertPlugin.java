@@ -29,13 +29,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * ---------------------------------------------------------------------------
  * Phoenix-HBase upsert插件
- * ---------------------------------------------------------------------------
  *
  * @author: luolh
- * @time:2017/3/21 10:59
- * ---------------------------------------------------------------------------
+ * @since:2020/9/17 10:59
  */
 public class PhoenixUpsertPlugin extends BasePlugin {
     public static final String METHOD_UPSERT = "upsert";  // 方法名
@@ -111,7 +108,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         if (PluginTools.getHook(IUpsertPluginHook.class).clientUpsertSelectiveMethodGenerated(mBatchUpsert, interfaze, introspectedTable)) {
             // interface 增加方法
             FormatTools.addMethodWithBestPosition(interfaze, mBatchUpsert);
-            logger.debug("itfsw(存在即更新插件):" + interfaze.getType().getShortName() + "增加mBatchUpsert方法。");
+            logger.debug("itfsw(批量upsert插件):" + interfaze.getType().getShortName() + "增加mBatchUpsert方法。");
         }
 
         // ====================================== batchUpsertSelective ======================================
@@ -126,7 +123,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         commentGenerator.addGeneralMethodComment(mBatchInsertSelective, introspectedTable);
         // interface 增加方法
         FormatTools.addMethodWithBestPosition(interfaze, mBatchInsertSelective);
-        logger.debug("itfsw(批量插入插件):" + interfaze.getType().getShortName() + "增加batchInsertSelective方法。");
+        logger.debug("itfsw(PhoenixUpsert插件):" + interfaze.getType().getShortName() + "增加batchUpsertSelective方法。");
 
         return super.clientGenerated(interfaze, topLevelClass, introspectedTable);
     }
@@ -177,7 +174,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         XmlElement insertValuesEle = XmlElementGeneratorTools.generateValuesSelective(columns);
         insertEle.addElement(insertValuesEle);
         document.getRootElement().addElement(insertEle);
-        logger.debug("itfsw(存在即更新插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加upsertSelective实现方法。");
+        logger.debug("itfsw(PhoenixUpsert插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加upsertSelective实现方法。");
     }
 
     /**
@@ -210,7 +207,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         }
 
         document.getRootElement().addElement(insertEle);
-        logger.debug("itfsw(存在即更新插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加" + ("upsert") + "实现方法。");
+        logger.debug("itfsw(PhoenixUpsert插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加" + ("upsert") + "实现方法。");
     }
 
     /**
@@ -242,12 +239,15 @@ public class PhoenixUpsertPlugin extends BasePlugin {
 
         foreachEle.addElement(new TextElement("select "));
         // bracket true-->有括号 false-->没有括号
-        for (Element element : XmlElementGeneratorTools.generateValues(columns, "item.", false)) {
-            foreachEle.addElement(element);
+        for (int i = 0; i < columns.size(); i++) {
+            IntrospectedColumn column = columns.get(i);
+            boolean append = i < (columns.size() - 1);
+            XmlElement xmlElement = generateValueChoose(column, "item", append);
+            foreachEle.addElement(xmlElement);
         }
 
         document.getRootElement().addElement(insertEle);
-        logger.debug("itfsw(存在即更新插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加" + ("batchUpsert") + "实现方法。");
+        logger.debug("itfsw(PhoenixUpsert插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加" + ("batchUpsert") + "实现方法。");
     }
 
     /**
@@ -267,7 +267,7 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         insertEle.addAttribute(new Attribute("parameterType", JavaElementGeneratorTools.getModelTypeWithoutBLOBs(introspectedTable).getFullyQualifiedName()));
         insertEle.getElements().addAll(generateSelectiveEnhancedEles(introspectedTable));
         document.getRootElement().addElement(insertEle);
-        logger.debug("itfsw(存在即更新插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加batchUpsertSelective实现方法。");
+        logger.debug("itfsw(PhoenixUpsert插件):" + introspectedTable.getMyBatis3XmlMapperFileName() + "增加batchUpsertSelective实现方法。");
     }
 
     /**
@@ -310,7 +310,10 @@ public class PhoenixUpsertPlugin extends BasePlugin {
             IntrospectedColumn introspectedColumn = columns.get(i);
             XmlElement check = new XmlElement("if");
             check.addAttribute(new Attribute("test", "'" + introspectedColumn.getActualColumnName() + "'.toString() == column.value"));
-            check.addElement(new TextElement(MyBatis3FormattingUtilities.getParameterClause(introspectedColumn, "item.")));
+
+//            boolean append = i<(columns1.size() - 1);
+            XmlElement xmlElement = generateValueChoose(introspectedColumn, "item", false);
+            check.addElement(xmlElement);
 
             foreachInsertColumnsCheck.addElement(check);
         }
@@ -320,5 +323,26 @@ public class PhoenixUpsertPlugin extends BasePlugin {
         eles.add(foreachValues);
 
         return eles;
+    }
+
+    public XmlElement generateValueChoose(IntrospectedColumn introspectedColumn, String prefix, boolean append) {
+        // 条件
+        XmlElement choose = new XmlElement("choose");
+
+        String newPrefix = (prefix != null ? prefix : "_parameter") + ".";
+        String javaProperty = introspectedColumn.getJavaProperty(newPrefix);
+        XmlElement whenIncEle = new XmlElement("when");
+        whenIncEle.addAttribute(new Attribute("test", javaProperty + " != null "));
+
+        whenIncEle.addElement(new TextElement(MyBatis3FormattingUtilities.getParameterClause(introspectedColumn, newPrefix) + (append ? "," : "")));
+        choose.addElement(whenIncEle);
+
+        XmlElement otherwiseEle = new XmlElement("otherwise");
+        otherwiseEle.addElement(new TextElement(
+                "CAST(NULL AS " + introspectedColumn.getJdbcTypeName() + ")" + (append ? "," : "")
+        ));
+        choose.addElement(otherwiseEle);
+
+        return choose;
     }
 }
